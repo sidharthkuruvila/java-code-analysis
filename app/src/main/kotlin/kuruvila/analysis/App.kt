@@ -8,9 +8,9 @@ import com.github.javaparser.ast.Modifier.Keyword
 import com.github.javaparser.ast.Node
 import com.github.javaparser.ast.NodeList
 import com.github.javaparser.ast.expr.AssignExpr
-import com.github.javaparser.ast.expr.AssignExpr.Operator
 import com.github.javaparser.ast.expr.BinaryExpr
 import com.github.javaparser.ast.expr.UnaryExpr
+import com.github.javaparser.ast.stmt.SwitchEntry
 import com.github.javaparser.ast.type.ArrayType
 import com.github.javaparser.ast.type.PrimitiveType
 import java.lang.reflect.Method
@@ -18,7 +18,7 @@ import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.DriverManager
-import java.util.*
+import java.util.Optional
 import kotlin.collections.ArrayDeque
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.isDirectory
@@ -33,13 +33,15 @@ fun main() {
 
     DriverManager.getConnection("jdbc:sqlite:sample.db").use { connection ->
         val codeDb = CodeDb(connection)
+        connection.autoCommit = false
         codeDb.initialize()
-
-        val basePath = Path.of("/Users/sidharth/code/downloads/spring-petclinic/src/main/java/")
+        connection.commit()
+        val basePath = Path.of("/Users/sidharth/code/lucene/lucene")
         val jp = JavaParser()
         for(file in allFiles(basePath, "*.java")) {
             println(file)
             extractFile(jp, file, codeDb)
+            connection.commit()
         }
 
 //        connection.createStatement().use { statement ->
@@ -59,6 +61,7 @@ fun main() {
 }
 
 fun extractFile(jp: JavaParser, file: Path, codeDb: CodeDb) {
+//    val startTime = System.nanoTime()
     val pr = jp.parse(file)
     val cu = pr.result.get();
 
@@ -67,10 +70,11 @@ fun extractFile(jp: JavaParser, file: Path, codeDb: CodeDb) {
     queue.add(NodeInfo(cu, -1))
     while (queue.isNotEmpty()) {
         val nodeInfo = queue.removeFirst()
+        val propertyId = nodeInfo.parentPropertyId
         val node = nodeInfo.node
         val metaModel = node.metaModel;
         val propertyMetaModels = metaModel.allPropertyMetaModels
-        val nodeId = codeDb.createAstNode(node, fileId)
+        val nodeId = codeDb.createAstNode(node, propertyId, fileId)
         codeDb.addAstNodePropertyNodeDetails(nodeInfo.parentPropertyId, nodeId)
         for (propertyMetaModel in propertyMetaModels) {
             val getterName = propertyMetaModel.getterMethodName
@@ -141,12 +145,18 @@ fun extractFile(jp: JavaParser, file: Path, codeDb: CodeDb) {
                     val propertyId = codeDb.createAstNodeProperty("token", nodeId, propertyMetaModel, 0)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "array_type_origin", res.name)
                 }
+                is SwitchEntry.Type -> {
+                    val propertyId = codeDb.createAstNodeProperty("token", nodeId, propertyMetaModel, 0)
+                    codeDb.addAstNodePropertyTokenDetails(propertyId, "switch_entry_type", res.name)
+                }
                 else -> throw IllegalStateException("value $res, has unsupported type ${res.javaClass}")
             }
 
         }
     }
-
+//    val endTime = System.nanoTime()
+//    val elapsedTime = endTime - startTime
+//    println("Time taken to process $file: ${elapsedTime/1000000}ms")
 
 }
 

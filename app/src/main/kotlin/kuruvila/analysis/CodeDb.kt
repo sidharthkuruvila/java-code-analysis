@@ -144,28 +144,29 @@ class CodeDb(val connection: Connection) {
                 |end_column integer,
                 |source_file_id integer
      */
-    fun createAstNode(node: Node, sourceFileId: Int): Int {
+    fun createAstNode(node: Node, parentPropertyId: Int, sourceFileId: Int): Int {
         val metaModel = node.metaModel
         val nodeTypeId = getOrCreateAstNodeType(metaModel.typeName)
-        connection.prepareStatement("""insert into ast_node (ast_node_type_id, begin_line, begin_column, end_line, end_column, source_file_id) 
-            |values (?, ?, ?, ?, ?, ?)""".trimMargin()).use { preparedStatement ->
+        connection.prepareStatement("""insert into ast_node (ast_node_type_id, ast_node_property_id, begin_line, begin_column, end_line, end_column, source_file_id)
+            |values (?, ?, ?, ?, ?, ?, ?)""".trimMargin()).use { preparedStatement ->
             preparedStatement.setInt(1, nodeTypeId)
+            preparedStatement.setInt(1, parentPropertyId)
             if(node.range.isPresent) {
                 val range = node.range.get()
                 val begin = range.begin
                 val end = range.end
-                preparedStatement.setInt(2, begin.line)
-                preparedStatement.setInt(3, begin.column)
-                preparedStatement.setInt(4, end.line)
-                preparedStatement.setInt(5, end.column)
+                preparedStatement.setInt(3, begin.line)
+                preparedStatement.setInt(4, begin.column)
+                preparedStatement.setInt(5, end.line)
+                preparedStatement.setInt(6, end.column)
 
             }else {
-                preparedStatement.setInt(2, -1)
                 preparedStatement.setInt(3, -1)
                 preparedStatement.setInt(4, -1)
                 preparedStatement.setInt(5, -1)
+                preparedStatement.setInt(6, -1)
             }
-            preparedStatement.setInt(6, sourceFileId)
+            preparedStatement.setInt(7, sourceFileId)
             preparedStatement.executeUpdate()
         }
         connection.prepareStatement("select last_insert_rowid()").use { preparedStatement ->
@@ -179,7 +180,7 @@ class CodeDb(val connection: Connection) {
 
     fun createAstNodeProperty(valueType: String, nodeId: Int, propertyMetaModel: PropertyMetaModel, index: Int): Int {
         val propertyTypeId = getOrCreateAstNodePropertyType(propertyMetaModel)
-        connection.prepareStatement("""insert into ast_node_property (value_type, ast_node_property_type_id, ast_node_id, idx) 
+        connection.prepareStatement("""insert into ast_node_property (value_type, ast_node_property_type_id, ast_node_id, idx)
             |values (?, ?, ?, ?)""".trimMargin()).use { preparedStatement ->
             preparedStatement.setString(1, valueType)
             preparedStatement.setInt(2, propertyTypeId)
@@ -206,7 +207,7 @@ class CodeDb(val connection: Connection) {
     }
 
     fun addAstNodePropertyStringDetails(parentPropertyId: Int, value: String) {
-        connection.prepareStatement("""insert into ast_node_property_string (id, value) 
+        connection.prepareStatement("""insert into ast_node_property_string (id, value)
             |values (?, ?)""".trimMargin()).use { preparedStatement ->
             preparedStatement.setInt(1, parentPropertyId)
             preparedStatement.setString(2, value)
@@ -215,7 +216,7 @@ class CodeDb(val connection: Connection) {
     }
 
     fun addAstNodePropertyBooleanDetails(parentPropertyId: Int, value: Boolean) {
-        connection.prepareStatement("""insert into ast_node_property_boolean (id, value) 
+        connection.prepareStatement("""insert into ast_node_property_boolean (id, value)
             |values (?, ?)""".trimMargin()).use { preparedStatement ->
             preparedStatement.setInt(1, parentPropertyId)
             preparedStatement.setBoolean(2, value)
@@ -224,7 +225,7 @@ class CodeDb(val connection: Connection) {
     }
 
     fun addAstNodePropertyTokenDetails(parentPropertyId: Int, type: String, value: String) {
-        connection.prepareStatement("""insert into ast_node_property_token (id, type, value) 
+        connection.prepareStatement("""insert into ast_node_property_token (id, type, value)
             |values (?, ?, ?)""".trimMargin()).use { preparedStatement ->
             preparedStatement.setInt(1, parentPropertyId)
             preparedStatement.setString(2, type)
