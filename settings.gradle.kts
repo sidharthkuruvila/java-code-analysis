@@ -19,4 +19,4 @@ plugins {
 }
 
 rootProject.name = "java-code-analysis"
-include("app")
+include("app", "gen", "utilities")
