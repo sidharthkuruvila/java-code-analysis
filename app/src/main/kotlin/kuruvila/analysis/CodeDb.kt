@@ -1,48 +1,63 @@
 package kuruvila.analysis
 
+import com.github.javaparser.ast.Modifier
 import com.github.javaparser.ast.Node
+import com.github.javaparser.ast.NodeList
+import com.github.javaparser.ast.expr.AssignExpr
+import com.github.javaparser.ast.expr.BinaryExpr
+import com.github.javaparser.ast.expr.UnaryExpr
+import com.github.javaparser.ast.stmt.SwitchEntry
+import com.github.javaparser.ast.type.ArrayType
+import com.github.javaparser.ast.type.PrimitiveType
+import com.github.javaparser.metamodel.BaseNodeMetaModel
 import com.github.javaparser.metamodel.JavaParserMetaModel
 import com.github.javaparser.metamodel.PropertyMetaModel
 import java.nio.file.Path
 import java.sql.Connection
 import kotlin.io.path.absolutePathString
+import kotlin.jvm.optionals.getOrNull
 
 class CodeDb(val connection: Connection) {
     fun createTables() {
         connection.createStatement().use { statement ->
-            statement.setQueryTimeout(30) // set timeout to 30 sec.
+            statement.queryTimeout = 30 // set timeout to 30 sec.
 
-            statement.executeUpdate("drop table if exists ast_node_type")
-            statement.executeUpdate("drop table if exists ast_node_property_type ")
-            statement.executeUpdate("drop table if exists ast_node")
-            statement.executeUpdate("drop table if exists ast_node_property_string")
-            statement.executeUpdate("drop table if exists ast_node_property_boolean")
-            statement.executeUpdate("drop table if exists ast_node_property_node")
-            statement.executeUpdate("drop table if exists ast_node_property_token")
-            statement.executeUpdate("drop table if exists ast_node_property")
-            statement.executeUpdate("drop table if exists source_file")
+            val createTableStatements = listOf(
+                    """create table ast_node_type (id integer primary key autoincrement, inherits_from_ast_node_type_id integer, name string)""",
+                    """create table ast_node_property_type (id integer primary key autoincrement, parent_ast_node_type_id integer, value_type string, ast_node_type_id integer, name text)""",
+                    """create table ast_node (
+                    |id integer primary key autoincrement ,
+                    |ast_node_type_id integer, 
+                    |ast_node_property_id integer, 
+                    |begin_line integer, 
+                    |begin_column integer, 
+                    |end_line integer, 
+                    |end_column integer, 
+                    |source_file_id integer)""".trimMargin(),
+                    """create table ast_node_property_string (id integer, value string)""",
 
-            statement.executeUpdate("create table ast_node_type (id integer primary key autoincrement, name string)")
-            statement.executeUpdate("create table ast_node_property_type (id integer primary key autoincrement, parent_ast_node_type_id integer, ast_node_type_id integer, name text)")
-            statement.executeUpdate("""create table ast_node (
-                |id integer primary key autoincrement ,
-                |ast_node_type_id integer, 
-                |ast_node_property_id integer, 
-                |begin_line integer, 
-                |begin_column integer, 
-                |end_line integer, 
-                |end_column integer, 
-                |source_file_id integer)""".trimMargin())
-            statement.executeUpdate("create table ast_node_property_string (id integer, value string)")
-            statement.executeUpdate("create table ast_node_property_token (id integer, type string, value string)")
-            statement.executeUpdate("create table ast_node_property_boolean (id integer, value boolean)")
-            statement.executeUpdate("create table ast_node_property_node (id integer, value integer)")
-            statement.executeUpdate("create table ast_node_property (id integer primary key autoincrement, value_type string, ast_node_property_type_id integer, ast_node_id integer, idx integer)")
-            statement.executeUpdate("create table source_file (id integer primary key autoincrement, absolute_path string)")
+                    """create table ast_node_property_token (id integer, type string, value string)""",
+                    """create table ast_node_property_boolean (id integer, value boolean)""",
+                    """create table ast_node_property_node (id integer, value integer)""",
+                    """create table ast_node_property (id integer primary key autoincrement, ast_node_property_type_id integer, ast_node_id integer, idx integer)""",
+                    """create table source_file_type (id integer primary key autoincrement, extension string)""",
+                    """create table source_file (id integer primary key autoincrement, absolute_path string)"""
+
+            )
+            val tableNames = createTableStatements.map { statement -> statement.split(" ")[2] }
+
+            for (tableName in tableNames) {
+                statement.executeUpdate("drop table if exists $tableName")
+            }
+
+            createTableStatements.forEach(statement::executeUpdate)
         }
     }
 
-    fun getOrCreateAstNodeType(name: String): Int {
+    fun getOrCreateAstNodeType(nodeMetaModel: BaseNodeMetaModel): Int {
+        val name = nodeMetaModel.typeName
+        val parentNode = nodeMetaModel.superNodeMetaModel.getOrNull()
+
         connection.prepareStatement("select id from ast_node_type where name = ?").use { preparedStatement ->
             preparedStatement.setString(1, name)
             val rs = preparedStatement.executeQuery()
@@ -51,8 +66,12 @@ class CodeDb(val connection: Connection) {
             }
         }
 
-        connection.prepareStatement("insert into ast_node_type (name) values (?)").use { preparedStatement ->
-            preparedStatement.setString(1, name)
+        connection.prepareStatement("insert into ast_node_type (inherits_from_ast_node_type_id, name) values (?, ?)").use { preparedStatement ->
+            if (parentNode != null) {
+                val parentNodeId = getOrCreateAstNodeType(parentNode)
+                preparedStatement.setInt(1, parentNodeId)
+            }
+            preparedStatement.setString(2, name)
             preparedStatement.executeUpdate()
         }
         connection.prepareStatement("select last_insert_rowid()").use { preparedStatement ->
@@ -69,8 +88,7 @@ class CodeDb(val connection: Connection) {
         val name = propertyMetaModel.name
         val parentNodeName = propertyMetaModel.containingNodeMetaModel.typeName
         val nodeName = propertyMetaModel.typeName
-        val parentNodeId = getOrCreateAstNodeType(parentNodeName)
-        val nodeId = getOrCreateAstNodeType(nodeName)
+        val parentNodeId = getOrCreateAstNodeType(propertyMetaModel.containingNodeMetaModel)
 
         connection.prepareStatement("select id from ast_node_property_type where name = ? and parent_ast_node_type_id = ?").use { preparedStatement ->
             preparedStatement.setString(1, name)
@@ -80,10 +98,39 @@ class CodeDb(val connection: Connection) {
                 return rs.getInt(1)
             }
         }
-        connection.prepareStatement("insert into ast_node_property_type (name, parent_ast_node_type_id, ast_node_type_id) values (?, ?, ?)").use { preparedStatement ->
+        connection.prepareStatement("insert into ast_node_property_type (name, parent_ast_node_type_id, ast_node_type_id, value_type) values (?, ?, ?, ?)").use { preparedStatement ->
             preparedStatement.setString(1, name)
             preparedStatement.setInt(2, parentNodeId)
-            preparedStatement.setInt(3, nodeId)
+            val tokenClasses = listOf(
+                    Modifier.Keyword::class.java,
+                    AssignExpr.Operator::class.java,
+                    BinaryExpr.Operator::class.java,
+                    UnaryExpr.Operator::class.java,
+                    PrimitiveType.Primitive::class.java,
+                    ArrayType.Origin::class.java,
+                    SwitchEntry.Type::class.java,
+            )
+            val valueType =
+                    if (Node::class.java.isAssignableFrom(propertyMetaModel.type)
+                            || NodeList::class.java.isAssignableFrom(propertyMetaModel.type)) {
+                        "node"
+                    } else if (Boolean::class.java.isAssignableFrom(propertyMetaModel.type)) {
+                        "boolean"
+                    } else if (String::class.java.isAssignableFrom(propertyMetaModel.type)) {
+                        "string"
+                    } else if (tokenClasses.any { tokenClass -> tokenClass.isAssignableFrom(propertyMetaModel.type) }) {
+                        "token"
+                    } else {
+                        throw RuntimeException()
+                    }
+
+
+            if (propertyMetaModel.nodeReference.isPresent) {
+                preparedStatement.setInt(3,
+                        getOrCreateAstNodeType(propertyMetaModel.nodeReference.get()))
+
+            }
+            preparedStatement.setString(4, valueType)
             preparedStatement.executeUpdate()
         }
         connection.prepareStatement("select last_insert_rowid()").use { preparedStatement ->
@@ -146,12 +193,12 @@ class CodeDb(val connection: Connection) {
      */
     fun createAstNode(node: Node, parentPropertyId: Int, sourceFileId: Int): Int {
         val metaModel = node.metaModel
-        val nodeTypeId = getOrCreateAstNodeType(metaModel.typeName)
+        val nodeTypeId = getOrCreateAstNodeType(metaModel)
         connection.prepareStatement("""insert into ast_node (ast_node_type_id, ast_node_property_id, begin_line, begin_column, end_line, end_column, source_file_id)
             |values (?, ?, ?, ?, ?, ?, ?)""".trimMargin()).use { preparedStatement ->
             preparedStatement.setInt(1, nodeTypeId)
             preparedStatement.setInt(1, parentPropertyId)
-            if(node.range.isPresent) {
+            if (node.range.isPresent) {
                 val range = node.range.get()
                 val begin = range.begin
                 val end = range.end
@@ -160,7 +207,7 @@ class CodeDb(val connection: Connection) {
                 preparedStatement.setInt(5, end.line)
                 preparedStatement.setInt(6, end.column)
 
-            }else {
+            } else {
                 preparedStatement.setInt(3, -1)
                 preparedStatement.setInt(4, -1)
                 preparedStatement.setInt(5, -1)
@@ -178,14 +225,13 @@ class CodeDb(val connection: Connection) {
         }
     }
 
-    fun createAstNodeProperty(valueType: String, nodeId: Int, propertyMetaModel: PropertyMetaModel, index: Int): Int {
+    fun createAstNodeProperty(nodeId: Int, propertyMetaModel: PropertyMetaModel, index: Int): Int {
         val propertyTypeId = getOrCreateAstNodePropertyType(propertyMetaModel)
-        connection.prepareStatement("""insert into ast_node_property (value_type, ast_node_property_type_id, ast_node_id, idx)
-            |values (?, ?, ?, ?)""".trimMargin()).use { preparedStatement ->
-            preparedStatement.setString(1, valueType)
-            preparedStatement.setInt(2, propertyTypeId)
-            preparedStatement.setInt(3, nodeId)
-            preparedStatement.setInt(4, index)
+        connection.prepareStatement("""insert into ast_node_property (ast_node_property_type_id, ast_node_id, idx)
+            |values (?, ?, ?)""".trimMargin()).use { preparedStatement ->
+            preparedStatement.setInt(1, propertyTypeId)
+            preparedStatement.setInt(2, nodeId)
+            preparedStatement.setInt(3, index)
             preparedStatement.executeUpdate()
         }
         connection.prepareStatement("select last_insert_rowid()").use { preparedStatement ->

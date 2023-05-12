@@ -14,3 +14,5 @@ There may be practical limitations as to what an automated system can do in the 
 
 This program is built on top of Javaparser. It takes the parsed ast and writes it into an sqlite db.
 
+# Representing the AST in sql
+![image](./docs/files/ast-schema.png)

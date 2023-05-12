@@ -98,55 +98,55 @@ fun extractFile(jp: JavaParser, file: Path, codeDb: CodeDb) {
                 }
 
                 is Node -> {
-                    val propertyId = codeDb.createAstNodeProperty("node", nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
                     queue.add(NodeInfo(res, propertyId))
                 }
 
                 is NodeList<*> -> {
                     res.mapIndexed { j, child ->
-                        val propertyId = codeDb.createAstNodeProperty("node", nodeId, propertyMetaModel, j)
+                        val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, j)
                         queue.add(NodeInfo(child, propertyId))
                     }
                 }
 
                 is Boolean -> {
-                    val propertyId = codeDb.createAstNodeProperty("boolean", nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
                     codeDb.addAstNodePropertyBooleanDetails(propertyId, res)
                 }
 
                 is String -> {
-                    val propertyId = codeDb.createAstNodeProperty("string", nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
                     codeDb.addAstNodePropertyStringDetails(propertyId, res)
                 }
 
                 is Keyword -> {
-                    val propertyId = codeDb.createAstNodeProperty("token", nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "modifier", res.asString())
                 }
 
                 is AssignExpr.Operator -> {
-                    val propertyId = codeDb.createAstNodeProperty("token", nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "assign_operator", res.asString())
                 }
 
                 is BinaryExpr.Operator -> {
-                    val propertyId = codeDb.createAstNodeProperty("token", nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "binary_operator", res.asString())
                 }
                 is UnaryExpr.Operator -> {
-                    val propertyId = codeDb.createAstNodeProperty("token", nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "unary_operator", res.asString())
                 }
                 is PrimitiveType.Primitive -> {
-                    val propertyId = codeDb.createAstNodeProperty("token", nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "primitive_type", res.asString())
                 }
                 is ArrayType.Origin -> {
-                    val propertyId = codeDb.createAstNodeProperty("token", nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "array_type_origin", res.name)
                 }
                 is SwitchEntry.Type -> {
-                    val propertyId = codeDb.createAstNodeProperty("token", nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "switch_entry_type", res.name)
                 }
                 else -> throw IllegalStateException("value $res, has unsupported type ${res.javaClass}")

@@ -16,4 +16,6 @@ dependencies {
 application {
     // Define the main class for the application.
     mainClass.set("kuruvila.gen.AppKt")
+
+    applicationDefaultJvmArgs = listOf("-ea")
 }
