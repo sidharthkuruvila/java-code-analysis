@@ -14,16 +14,6 @@ import kotlin.system.exitProcess
 fun main() {
     val nodeMetaModels = JavaParserMetaModel.getNodeMetaModels()
 
-
-//    val ex = (JavaParserMetaModel.getNodeMetaModel(SwitchExpr::class.java).get())
-//    println("allPropertyMetaModels:" + ex.allPropertyMetaModels)
-//    println("declaredPropertyMetaModels:" + ex.declaredPropertyMetaModels)
-//    println("derivedPropertyMetaModels:" + ex.derivedPropertyMetaModels)
-//    println("Constructor Parameter:" + ex.constructorParameters)
-//    println(ex.packageName)
-//    println(ex.qualifiedClassName)
-//    println(ex.typeNameGenerified)
-//    println(ex.hasWildcard())
     showNodeMetaModel()
 
 }

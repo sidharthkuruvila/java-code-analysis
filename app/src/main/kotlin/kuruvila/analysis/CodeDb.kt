@@ -197,7 +197,7 @@ class CodeDb(val connection: Connection) {
         connection.prepareStatement("""insert into ast_node (ast_node_type_id, ast_node_property_id, begin_line, begin_column, end_line, end_column, source_file_id)
             |values (?, ?, ?, ?, ?, ?, ?)""".trimMargin()).use { preparedStatement ->
             preparedStatement.setInt(1, nodeTypeId)
-            preparedStatement.setInt(1, parentPropertyId)
+            preparedStatement.setInt(2, parentPropertyId)
             if (node.range.isPresent) {
                 val range = node.range.get()
                 val begin = range.begin
