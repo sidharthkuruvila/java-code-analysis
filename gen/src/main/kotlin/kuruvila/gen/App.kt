@@ -60,13 +60,22 @@ from ast_node as node
          join ast_node_type as node_type on node.ast_node_type_id = node_type.id"""
     )
 
+
+    val subTypes = allParents.map { parent -> Pair(parent, children.filter {child -> parent.type.isAssignableFrom(child.type) }) }
+    val parentNodeQueries = subTypes.map { (parent, decendants) ->
+        val tableName = "node_${parent.typeName}_code(property_id, node_id, code)"
+        val query = decendants.map{ decendant -> "select property_id, node_id, code from node_${decendant.typeName}_code" }
+                .joinToString("\nunion\n")
+        c(tableName, query)
+    }
+
     val clauses: List<SqlClause> = listOf(
             nodeQuery,
             nodePropertyQuery,
-            *terms.flatMap{genTerm(it)}.toTypedArray()
+            *terms.flatMap{genTerm(it)}.toTypedArray(),
+            *parentNodeQueries.toTypedArray()
     )
 
-    //TODO write query to map the super class nodes to their child nodes
     //TODO write select query with case statements to chose correct clause based on type of node
 
     val query = """
