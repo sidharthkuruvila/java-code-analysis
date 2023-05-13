@@ -1,14 +1,23 @@
 # Denormalised queries
 
-## A property of a node with property type information
+## A node property with property type information
 
 ```sql
-select property.id          as property_id,
-       property_type.name   as property_name,
-       property.ast_node_id as node_id,
-       property_type
-from ast_node_property as property
-         join ast_node_property_type as property_type on property.ast_node_property_type_id = property_type.id )
+select node.id                   as node_id,
+       node_type.name            as node_type,
+       node.ast_node_property_id as property_id
+from ast_node as node
+         join ast_node_type as node_type on node.ast_node_type_id = node_type.id
+```
+
+## Denormalised node
+
+```sql
+select node.id                   as node_id,
+       node_type.name            as node_type,
+       node.ast_node_property_id as property_id
+from ast_node as node
+         join ast_node_type as node_type on node.ast_node_type_id = node_type.id
 ```
 
 # Examples

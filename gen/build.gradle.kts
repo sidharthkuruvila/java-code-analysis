@@ -6,10 +6,12 @@
 
 plugins {
     id("java.code.analysis.kotlin-application-conventions")
+    kotlin("plugin.serialization") version "1.8.21"
 }
 
 dependencies {
     implementation("com.github.javaparser:javaparser-core:3.25.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.0")
     implementation(project(":utilities"))
 }
 
