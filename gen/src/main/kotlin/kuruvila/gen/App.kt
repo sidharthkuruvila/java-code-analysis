@@ -44,7 +44,7 @@ fun gen() {
     }
 
     val nodeQuery = c(
-            "node(node_id, type_name, property_id",
+            "node(node_id, type_name, property_id)",
             """select node.id                   as node_id,
        node_type.name            as node_type,
        node.ast_node_property_id as property_id
@@ -59,7 +59,6 @@ from ast_node as node
 from ast_node as node
          join ast_node_type as node_type on node.ast_node_type_id = node_type.id"""
     )
-
 
     val subTypes = allParents.map { parent -> Pair(parent, children.filter {child -> parent.type.isAssignableFrom(child.type) }) }
     val parentNodeQueries = subTypes.map { (parent, decendants) ->
@@ -77,15 +76,17 @@ from ast_node as node
     )
 
     //TODO write select query with case statements to chose correct clause based on type of node
+    val selectQuery = children.map { child ->
+        """select property_id, node_id, code from node_${child.typeName}_code"""
+    }.joinToString("\n union \n")
 
     val query = """
-        when
+        with recursive
         ${clauses.map { "${it.name} as (${it.query})" }.joinToString(", \n")}
-        select * from node limit 10
+        ${selectQuery}
     """.trimIndent()
     Path("db_to_code.sql").writeText(query)
 }
-
 
 fun genTerm(term: Term): List<SqlClause> {
     // node code table name: node_{type_name}_code(property_id, node_id, code)
@@ -95,18 +96,19 @@ fun genTerm(term: Term): List<SqlClause> {
 
     val joinClauses = properties.map { termProperty ->
         val propertyName = termProperty.propertyName
-        "join node_${typeName}_property_${propertyName}_code as ${propertyName} on ${propertyName}.node_id = node.node_id and ${propertyName}.property_name = '${propertyName}'"
+        "join node_${typeName}_property_${propertyName}_code as \"${propertyName}\" on \"${propertyName}\".node_id = node.node_id and \"${propertyName}\".property_name = '${propertyName}'"
     }
     fun esc(s: String) = s.replace("'", "''")
     val templateSql = template.map {
         when (it) {
-            is Template.Property -> "${it.name}.code"
+            is Template.Property -> "\"${it.name}\".code"
             is Template.Text -> "'${esc(it.text)}'"
         }
     }.joinToString(" || ")
     val termQuery = """
-        select node_id, ${templateSql} as code from node
+        select property_id, node_id, ${templateSql} as code from node
         ${joinClauses.joinToString("\n")}
+        where node.type_name = '${typeName}'
     """
 
     // node property code table name: node_{type_name}_property_{property_name}_code(node_id, property_name, code)s
@@ -164,7 +166,6 @@ fun t(text: String): Template = Template.Text(text)
 val exampleTemplate = listOf(t("if("), p("condition"),
         t(") { "), p("thenStmt"), t(" } else { "), p("elseStmt"), " }")
 
-
 @Serializable
 enum class ValueType {
     Node, String, Boolean, Token
@@ -196,7 +197,6 @@ data class Term(
     }
 }
 
-
 val tokenClasses = listOf(
         Modifier.Keyword::class.java,
         AssignExpr.Operator::class.java,
@@ -206,7 +206,6 @@ val tokenClasses = listOf(
         ArrayType.Origin::class.java,
         SwitchEntry.Type::class.java,
 )
-
 
 fun getValueType(propertyMetaModel: PropertyMetaModel): ValueType =
         if (com.github.javaparser.ast.Node::class.java.isAssignableFrom(propertyMetaModel.type)
