@@ -60,44 +60,39 @@ from ast_node as node
          join ast_node_type as node_type on node.ast_node_type_id = node_type.id"""
     )
 
-    val subTypes = allParents.map { parent -> Pair(parent, children.filter {child -> parent.type.isAssignableFrom(child.type) }) }
-    val parentNodeQueries = subTypes.map { (parent, decendants) ->
-        val tableName = "node_${parent.typeName}_code(property_id, node_id, code)"
-        val query = decendants.map{ decendant -> "select property_id, node_id, code from node_${decendant.typeName}_code" }
-                .joinToString("\nunion\n")
-        c(tableName, query)
-    }
+//    val subTypes = allParents.map { parent -> Pair(parent, children.filter {child -> parent.type.isAssignableFrom(child.type) }) }
+//    val parentNodeQueries = subTypes.map { (parent, decendants) ->
+//        val tableName = "node_${parent.typeName}_code(property_id, node_id, code)"
+//        val query = decendants.map{ decendant -> "select property_id, node_id, code from node_${decendant.typeName}_code" }
+//                .joinToString("\nunion\n")
+//        c(tableName, query)
+//    }
 
+    val nodeCodeQueryParts = listOf(
+            *terms.map { genTerm(it) }.toTypedArray()
+    )
+
+    val nodeCodeQuery = c("node_code(property_id, node_id, code)", nodeCodeQueryParts.joinToString("\nunion\n"))
     val clauses: List<SqlClause> = listOf(
             nodeQuery,
             nodePropertyQuery,
-            *terms.flatMap{genTerm(it)}.toTypedArray(),
-            *parentNodeQueries.toTypedArray()
+            nodeCodeQuery
     )
-
-    //TODO write select query with case statements to chose correct clause based on type of node
-    val selectQuery = children.map { child ->
-        """select property_id, node_id, code from node_${child.typeName}_code"""
-    }.joinToString("\n union \n")
 
     val query = """
         with recursive
         ${clauses.map { "${it.name} as (${it.query})" }.joinToString(", \n")}
-        ${selectQuery}
+        select property_id, node_id, code from node_code
     """.trimIndent()
     Path("db_to_code.sql").writeText(query)
 }
 
-fun genTerm(term: Term): List<SqlClause> {
+fun genTerm(term: Term): String {
     // node code table name: node_{type_name}_code(property_id, node_id, code)
     val typeName = term.typeName
     val properties = term.properties
     val template = term.makeTemplate()
 
-    val joinClauses = properties.map { termProperty ->
-        val propertyName = termProperty.propertyName
-        "join node_${typeName}_property_${propertyName}_code as \"${propertyName}\" on \"${propertyName}\".node_id = node.node_id and \"${propertyName}\".property_name = '${propertyName}'"
-    }
     fun esc(s: String) = s.replace("'", "''")
     val templateSql = template.map {
         when (it) {
@@ -105,24 +100,19 @@ fun genTerm(term: Term): List<SqlClause> {
             is Template.Text -> "'${esc(it.text)}'"
         }
     }.joinToString(" || ")
-    val termQuery = """
-        select property_id, node_id, ${templateSql} as code from node
-        ${joinClauses.joinToString("\n")}
-        where node.type_name = '${typeName}'
-    """
+
 
     // node property code table name: node_{type_name}_property_{property_name}_code(node_id, property_name, code)s
-    val propertyQueries = properties.map { termProperty ->
+    val joinClauses = properties.map { termProperty ->
         val propertyName = termProperty.propertyName
         val propertyQueryName = "node_${typeName}_property_${propertyName}_code(node_id, property_name, code)"
         val propertyQuery: String = when(termProperty.valueType) {
             ValueType.Node -> {
-                val nodeTable = "node_${termProperty.nodeName}_code"
                 val (openParen, closeParen) = termProperty.parenthesis
                 val separator = termProperty.separator
                 """
            select property.node_id as node_id, property.property_name as property_name, '${openParen}' || group_concat(code,'${separator}') ||'${closeParen}' as code from property
-           join ${nodeTable} on ${nodeTable}.property_id = property.property_id
+           join node_code on node_code.property_id = property.property_id
            group by node_id, property_name
         """
             }
@@ -146,13 +136,14 @@ fun genTerm(term: Term): List<SqlClause> {
             }
 
         }
-        c(propertyQueryName, propertyQuery)
+        """left join (${propertyQuery}) as "${propertyName}" on node.node_id = "${propertyName}".node_id"""
     }
 
-    return listOf(
-            c("node_${typeName}_code(property_id, node_id, code)", termQuery),
-            *propertyQueries.toTypedArray()
-    )
+    return """
+        select node.property_id as property_id, node.node_id as node_id, ${templateSql} as code from node
+        ${joinClauses.joinToString("\n")}
+        where node.type_name = '${typeName}'
+    """
 }
 
 sealed interface Template {
