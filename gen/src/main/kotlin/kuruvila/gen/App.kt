@@ -18,12 +18,18 @@ import kotlin.jvm.optionals.toList
 
 fun main() {
 
-    terms()
+    gen()
 //    MetaModelDiagram().draw()
 
 }
 
-fun terms() {
+
+data class SqlClause(val name: String, val query: String)
+
+fun c(name: String, query: String) = SqlClause(name, query)
+
+fun gen() {
+
     val nodeMetaModels = JavaParserMetaModel.getNodeMetaModels()
     val allParents = nodeMetaModels
             .flatMap { nodeMetaModel -> nodeMetaModel.superNodeMetaModel.toList() }
@@ -36,17 +42,7 @@ fun terms() {
                     nodeName = propertyMetaModel.nodeReference.getOrNull()?.typeName)
         })
     }
-//
-//    val json = Json.encodeToString(terms)
-//    Path("terms.json").writeText(json)
-    gen(terms)
-}
 
-data class SqlClause(val name: String, val query: String)
-
-fun c(name: String, query: String) = SqlClause(name, query)
-
-fun gen(terms: List<Term>) {
     val nodeQuery = c(
             "node(node_id, type_name, property_id",
             """select node.id                   as node_id,
