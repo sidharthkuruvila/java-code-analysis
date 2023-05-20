@@ -39,7 +39,7 @@ class CodeDb(val connection: Connection) {
                     """create table ast_node_property_token (id integer, type string, value string)""",
                     """create table ast_node_property_boolean (id integer, value boolean)""",
                     """create table ast_node_property_node (id integer, value integer)""",
-                    """create table ast_node_property (id integer primary key autoincrement, ast_node_property_type_id integer, ast_node_id integer, idx integer)""",
+                    """create table ast_node_property (id integer primary key autoincrement, ast_node_property_type_id integer, ast_node_id integer, idx integer, property_idx integer)""",
                     """create table source_file_type (id integer primary key autoincrement, extension string)""",
                     """create table source_file (id integer primary key autoincrement, absolute_path string)"""
 
@@ -225,13 +225,14 @@ class CodeDb(val connection: Connection) {
         }
     }
 
-    fun createAstNodeProperty(nodeId: Int, propertyMetaModel: PropertyMetaModel, index: Int): Int {
+    fun createAstNodeProperty(nodeId: Int, propertyMetaModel: PropertyMetaModel, index: Int, propertyIndex: Int): Int {
         val propertyTypeId = getOrCreateAstNodePropertyType(propertyMetaModel)
-        connection.prepareStatement("""insert into ast_node_property (ast_node_property_type_id, ast_node_id, idx)
-            |values (?, ?, ?)""".trimMargin()).use { preparedStatement ->
+        connection.prepareStatement("""insert into ast_node_property (ast_node_property_type_id, ast_node_id, idx, property_idx)
+            |values (?, ?, ?, ?)""".trimMargin()).use { preparedStatement ->
             preparedStatement.setInt(1, propertyTypeId)
             preparedStatement.setInt(2, nodeId)
             preparedStatement.setInt(3, index)
+            preparedStatement.setInt(4, propertyIndex)
             preparedStatement.executeUpdate()
         }
         connection.prepareStatement("select last_insert_rowid()").use { preparedStatement ->

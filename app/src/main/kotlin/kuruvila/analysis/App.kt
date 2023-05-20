@@ -76,6 +76,7 @@ fun extractFile(jp: JavaParser, file: Path, codeDb: CodeDb) {
         val propertyMetaModels = metaModel.allPropertyMetaModels
         val nodeId = codeDb.createAstNode(node, propertyId, fileId)
         codeDb.addAstNodePropertyNodeDetails(nodeInfo.parentPropertyId, nodeId)
+        var propertyIndex = 0
         for (propertyMetaModel in propertyMetaModels) {
             val getterName = propertyMetaModel.getterMethodName
             val method = node.javaClass.methods.first { method: Method? -> method?.name == getterName }
@@ -98,60 +99,60 @@ fun extractFile(jp: JavaParser, file: Path, codeDb: CodeDb) {
                 }
 
                 is Node -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
                     queue.add(NodeInfo(res, propertyId))
                 }
 
                 is NodeList<*> -> {
                     res.mapIndexed { j, child ->
-                        val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, j)
+                        val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, j, propertyIndex)
                         queue.add(NodeInfo(child, propertyId))
                     }
                 }
 
                 is Boolean -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
                     codeDb.addAstNodePropertyBooleanDetails(propertyId, res)
                 }
 
                 is String -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
                     codeDb.addAstNodePropertyStringDetails(propertyId, res)
                 }
 
                 is Keyword -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "modifier", res.asString())
                 }
 
                 is AssignExpr.Operator -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "assign_operator", res.asString())
                 }
 
                 is BinaryExpr.Operator -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "binary_operator", res.asString())
                 }
                 is UnaryExpr.Operator -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "unary_operator", res.asString())
                 }
                 is PrimitiveType.Primitive -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "primitive_type", res.asString())
                 }
                 is ArrayType.Origin -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "array_type_origin", res.name)
                 }
                 is SwitchEntry.Type -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0)
+                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
                     codeDb.addAstNodePropertyTokenDetails(propertyId, "switch_entry_type", res.name)
                 }
                 else -> throw IllegalStateException("value $res, has unsupported type ${res.javaClass}")
             }
-
+            propertyIndex += 1
         }
     }
 //    val endTime = System.nanoTime()
