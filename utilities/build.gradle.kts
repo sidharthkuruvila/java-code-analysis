@@ -9,4 +9,5 @@ plugins {
 }
 
 dependencies {
+    implementation(gradleApi())
 }
