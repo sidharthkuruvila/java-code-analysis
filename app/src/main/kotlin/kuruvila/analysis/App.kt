@@ -4,24 +4,31 @@
 package kuruvila.analysis
 
 import com.github.javaparser.JavaParser
+import com.github.javaparser.ParserConfiguration
 import com.github.javaparser.ast.Modifier.Keyword
 import com.github.javaparser.ast.Node
 import com.github.javaparser.ast.NodeList
 import com.github.javaparser.ast.expr.AssignExpr
 import com.github.javaparser.ast.expr.BinaryExpr
+import com.github.javaparser.ast.expr.Expression
 import com.github.javaparser.ast.expr.UnaryExpr
 import com.github.javaparser.ast.stmt.SwitchEntry
 import com.github.javaparser.ast.type.ArrayType
 import com.github.javaparser.ast.type.PrimitiveType
+import com.github.javaparser.resolution.TypeSolver
+import com.github.javaparser.resolution.model.typesystem.LazyType
+import com.github.javaparser.symbolsolver.JavaSymbolSolver
+import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver
+import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver
+import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver
+import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver
+import kuruvila.analysis.gradle.Gradle
 import java.lang.reflect.Method
-import java.nio.file.FileSystems
-import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.DriverManager
-import java.util.Optional
+import java.util.*
 import kotlin.collections.ArrayDeque
-import kotlin.io.path.absolutePathString
-import kotlin.io.path.isDirectory
+
 
 data class NodeInfo(val node: Node, val parentPropertyId: Int)
 
@@ -30,146 +37,45 @@ compilation units: path, hash
  */
 fun main() {
 
-
     DriverManager.getConnection("jdbc:sqlite:sample.db").use { connection ->
         val codeDb = CodeDb(connection)
         connection.autoCommit = false
         codeDb.initialize()
         connection.commit()
-        val basePath = Path.of("/Users/sidharth/code/lucene/lucene")
-        val jp = JavaParser()
-        for(file in allFiles(basePath, "*.java")) {
-            println(file)
-            extractFile(jp, file, codeDb)
-            connection.commit()
-        }
+        val project = Gradle(Path.of("/Users/sidharth/code/understanging-java"))
+        for (module in project.modules()) {
+            val reflectionTypeSolver: TypeSolver = ReflectionTypeSolver()
+            val javaParserTypeSolvers = module.sources.map { JavaParserTypeSolver(it) }
+            val jarTypeSolvers = module.jars.map { JarTypeSolver(it) }
+            val typeSolver = CombinedTypeSolver()
+            typeSolver.add(reflectionTypeSolver)
+            for (ts in javaParserTypeSolvers) {
+                typeSolver.add(ts)
+            }
+            for (ts in jarTypeSolvers) {
+                typeSolver.add(ts)
+            }
+            val symbolSolver = JavaSymbolSolver(typeSolver)
+            val config = ParserConfiguration()
+            config.setSymbolResolver(symbolSolver)
+            val jp = JavaParser(config)
+            val astExtractor = AstExtractor(codeDb, jp)
 
-//        connection.createStatement().use { statement ->
-//            val rs = statement.executeQuery("""
-//                select ast_node_property_type.id, ast_node_type.name, parent_type.name, ast_node_property_type.name from ast_node_property_type
-//                join ast_node_type as parent_type on (parent_ast_node_type_id = parent_type.id)
-//                join ast_node_type on (ast_node_type_id = ast_node_type.id)""".trimIndent())
-//            while (rs.next()) {
-//                val id = rs.getInt(1)
-//                val parentTypeName = rs.getString(3)
-//                val typeName = rs.getString(2)
-//                val name = rs.getString(4)
-//                println("$id: $parentTypeName#$name: $typeName")
-//            }
-//        }
-    }
-}
+            println(project.modules())
 
-fun extractFile(jp: JavaParser, file: Path, codeDb: CodeDb) {
-//    val startTime = System.nanoTime()
-    val pr = jp.parse(file)
-    val cu = pr.result.get();
-
-    val fileId = codeDb.getOrCreateSourceFile(file)
-    val queue = ArrayDeque<NodeInfo>()
-    queue.add(NodeInfo(cu, -1))
-    while (queue.isNotEmpty()) {
-        val nodeInfo = queue.removeFirst()
-        val propertyId = nodeInfo.parentPropertyId
-        val node = nodeInfo.node
-        val metaModel = node.metaModel;
-        val propertyMetaModels = metaModel.allPropertyMetaModels
-        val nodeId = codeDb.createAstNode(node, propertyId, fileId)
-        codeDb.addAstNodePropertyNodeDetails(nodeInfo.parentPropertyId, nodeId)
-        var propertyIndex = 0
-        for (propertyMetaModel in propertyMetaModels) {
-            val getterName = propertyMetaModel.getterMethodName
-            val method = node.javaClass.methods.first { method: Method? -> method?.name == getterName }
-
-            val res = when (val r = method.invoke(node)) {
-                is Optional<*> -> {
-                    if (r.isPresent) {
-                        r.get()
-                    } else {
-                        null
-                    }
-                }
-
-                else -> r
+            for (file in module.allJavaSourceFiles()) {
+                println(file)
+                astExtractor.extractFile(file)
+                connection.commit()
             }
 
-            when (res) {
-                null -> {
-                    //Ignore nulls for now
-                }
-
-                is Node -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
-                    queue.add(NodeInfo(res, propertyId))
-                }
-
-                is NodeList<*> -> {
-                    res.mapIndexed { j, child ->
-                        val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, j, propertyIndex)
-                        queue.add(NodeInfo(child, propertyId))
-                    }
-                }
-
-                is Boolean -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
-                    codeDb.addAstNodePropertyBooleanDetails(propertyId, res)
-                }
-
-                is String -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
-                    codeDb.addAstNodePropertyStringDetails(propertyId, res)
-                }
-
-                is Keyword -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
-                    codeDb.addAstNodePropertyTokenDetails(propertyId, "modifier", res.asString())
-                }
-
-                is AssignExpr.Operator -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
-                    codeDb.addAstNodePropertyTokenDetails(propertyId, "assign_operator", res.asString())
-                }
-
-                is BinaryExpr.Operator -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
-                    codeDb.addAstNodePropertyTokenDetails(propertyId, "binary_operator", res.asString())
-                }
-                is UnaryExpr.Operator -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
-                    codeDb.addAstNodePropertyTokenDetails(propertyId, "unary_operator", res.asString())
-                }
-                is PrimitiveType.Primitive -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
-                    codeDb.addAstNodePropertyTokenDetails(propertyId, "primitive_type", res.asString())
-                }
-                is ArrayType.Origin -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
-                    codeDb.addAstNodePropertyTokenDetails(propertyId, "array_type_origin", res.name)
-                }
-                is SwitchEntry.Type -> {
-                    val propertyId = codeDb.createAstNodeProperty(nodeId, propertyMetaModel, 0, propertyIndex)
-                    codeDb.addAstNodePropertyTokenDetails(propertyId, "switch_entry_type", res.name)
-                }
-                else -> throw IllegalStateException("value $res, has unsupported type ${res.javaClass}")
-            }
-            propertyIndex += 1
+            val classHierarchyBuilder = ClassHierarchyBuilder(jp, module.allJavaSourceFiles(), codeDb)
+            classHierarchyBuilder.build()
         }
-    }
-//    val endTime = System.nanoTime()
-//    val elapsedTime = endTime - startTime
-//    println("Time taken to process $file: ${elapsedTime/1000000}ms")
 
+    }
 }
 
 
-fun allFiles(path: Path, glob: String): List<Path> {
-    val fileSystems = FileSystems.getDefault()
-    val matcher = fileSystems.getPathMatcher("glob:$glob")
-    fun f(path: Path): List<Path> {
-        val subPaths = Files.newDirectoryStream(path).toList()
-        val directories = subPaths.filter { x -> x.isDirectory() }
-        val matchingFiles = subPaths.filter { x -> x.absolutePathString().endsWith(".java") }
-        return directories.flatMap { x -> f(x) } + matchingFiles
-    }
-    return f(path)
-}
+
+

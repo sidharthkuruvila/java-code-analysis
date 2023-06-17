@@ -41,7 +41,11 @@ class CodeDb(val connection: Connection) {
                     """create table ast_node_property_node (id integer, value integer)""",
                     """create table ast_node_property (id integer primary key autoincrement, ast_node_property_type_id integer, ast_node_id integer, idx integer, property_idx integer)""",
                     """create table source_file_type (id integer primary key autoincrement, extension string)""",
-                    """create table source_file (id integer primary key autoincrement, absolute_path string)"""
+                    """create table source_file (id integer primary key autoincrement, absolute_path string)""",
+
+                    //Class hierarchy
+                    """create table class_definition (id integer primary key autoincrement, ast_node_id integer, qualified_name string)""",
+                    """create table class_definition_inheritance (class_definition_id integer, super_class_definition_id integer)"""
 
             )
             val tableNames = createTableStatements.map { statement -> statement.split(" ")[2] }
@@ -278,6 +282,112 @@ class CodeDb(val connection: Connection) {
             preparedStatement.setString(2, type)
             preparedStatement.setString(3, value)
             preparedStatement.executeUpdate()
+        }
+    }
+
+    val pathToNodeBuilder = PathToNodeBuilder()
+
+    fun findIdForNode(nodeId: Int, pathToNode: PathToNode): Int {
+        val query = """
+            select node_property.value as node_id
+            from ast_node as node
+            join ast_node_property as property on node.id = property.ast_node_id
+            join ast_node_property_type property_type on property.ast_node_property_type_id = property_type.id
+            join ast_node_property_node as node_property on property.id = node_property.id
+            where node.id = ?
+            and property_type.name = ?
+            and property.idx = ?"""
+        when(pathToNode) {
+            is PathToNode.Path -> {
+                connection.prepareStatement(query).use {preparedStatement ->
+                    val parentNodeDisplay = pathToNode.displayNode()
+                    val propertyName = pathToNode.propertyMetaModel.name
+                    val index = pathToNode.index
+                    preparedStatement.setInt(1, nodeId)
+                    preparedStatement.setString(2, pathToNode.propertyMetaModel.name)
+                    preparedStatement.setInt(3, pathToNode.index)
+                    val rs = preparedStatement.executeQuery()
+                    if(!rs.next()) {
+                        throw java.lang.RuntimeException("Could not find path for ${parentNodeDisplay}(${nodeId}).${propertyName}[${index}]")
+                    }
+                    val nextNodeId = rs.getInt("node_id")
+                    return findIdForNode(nextNodeId, pathToNode.next)
+                }
+            }
+            is PathToNode.Final -> {
+                return nodeId
+            }
+            else -> {
+                throw java.lang.RuntimeException("Should not come here")
+            }
+        }
+    }
+
+    fun findCompilationUnitNodeId(path: Path): Int {
+        val query = """
+            select node.id as node_id
+            from ast_node as node
+            join source_file on node.source_file_id = source_file.id
+            where node.ast_node_property_id = -1
+            and source_file.absolute_path = ?"""
+        connection.prepareStatement(query).use { preparedStatement ->
+            preparedStatement.setString(1, path.absolutePathString())
+            val rs = preparedStatement.executeQuery()
+            if(!rs.next()) {
+                throw java.lang.RuntimeException("Could not find path")
+            }
+            return rs.getInt("node_id")
+        }
+    }
+    fun findIdForNode(node: Node): Int {
+        val file = node.findCompilationUnit().get().storage.get().path
+        val path = pathToNodeBuilder.buildPath(node)
+        val compilationUnitNodeId = findCompilationUnitNodeId(file)
+        return findIdForNode(compilationUnitNodeId, path)
+    }
+
+    fun getOrCreateClassDefinition(qualifiedName: String, node: Node?): Int {
+        val findQuery = """select id from class_definition where qualified_name = ?"""
+        val createRowQuery = """insert into class_definition (ast_node_id, qualified_name) values (?, ?)"""
+        val classDefinitionId = connection.prepareStatement(findQuery).use { preparedStatement ->
+            preparedStatement.setString(1, qualifiedName)
+            val rs = preparedStatement.executeQuery()
+            if(rs.next()) {
+                rs.getInt(1)
+            } else {
+                connection.prepareStatement(createRowQuery).use { updateStatement ->
+                    if(node != null) {
+                        updateStatement.setInt(1, findIdForNode(node))
+                    }
+                    updateStatement.setString(2, qualifiedName)
+                    val res = updateStatement.executeUpdate()
+                    if(res != 1) throw java.lang.RuntimeException("Failed to add class definition")
+                    getLastInsertedRowId()
+                }
+            }
+        }
+        return classDefinitionId
+    }
+
+    fun getLastInsertedRowId(): Int {
+        connection.prepareStatement("select last_insert_rowid()").use { preparedStatement ->
+            val rs = preparedStatement.executeQuery()
+            rs.next()
+            val id = rs.getInt(1)
+//            println("Inserted ast_node_property ($id, $valueType, $nodeId, $index)")
+            return id
+        }
+    }
+
+    fun addClassDefinitionInheritance(classDefinitionId: Int, ancestorClassDefinitionId: Int) {
+        val updateQuery = """insert into class_definition_inheritance (class_definition_id, super_class_definition_id) values (?, ?)"""
+        connection.prepareStatement(updateQuery).use { updateStatement ->
+            updateStatement.setInt(1, classDefinitionId)
+            updateStatement.setInt(2, ancestorClassDefinitionId)
+            val res = updateStatement.executeUpdate()
+            if(res != 1){
+                throw java.lang.RuntimeException("Failed to add class_definition_inheritence for (${classDefinitionId} -> ${ancestorClassDefinitionId})")
+            }
         }
     }
 }

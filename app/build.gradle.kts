@@ -11,8 +11,9 @@ plugins {
 dependencies {
     implementation("org.apache.commons:commons-text")
     implementation("org.xerial:sqlite-jdbc:3.41.2.1")
-    implementation("com.github.javaparser:javaparser-core:3.25.2")
-    implementation("com.github.javaparser:javaparser-symbol-solver-core:3.25.2")
+    implementation("com.github.javaparser:javaparser-core:3.25.3")
+    implementation("com.github.javaparser:javaparser-symbol-solver-core:3.25.3")
+    implementation(project(":utilities"))
 }
 
 application {
