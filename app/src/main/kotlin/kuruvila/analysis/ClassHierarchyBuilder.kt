@@ -2,13 +2,16 @@ package kuruvila.analysis
 
 import com.github.javaparser.JavaParser
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration
+import com.github.javaparser.ast.body.RecordDeclaration
+import com.github.javaparser.ast.body.TypeDeclaration
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter
 import java.nio.file.Path
 
 class ClassHierarchyBuilder(val javaParser: JavaParser, val files: List<Path>, val codeDb: CodeDb) {
 
     fun build() {
-        for(file in files) {
+
+        val fileDecls = files.map {file ->
             val res = javaParser.parse(file)
             val cu = res.result.get()
             val decls = mutableListOf<ClassOrInterfaceDeclaration>()
@@ -19,12 +22,19 @@ class ClassHierarchyBuilder(val javaParser: JavaParser, val files: List<Path>, v
                 }
             }
             cu.accept(visitor, decls)
+            Pair(file, decls)
+        }
+
+        for ((_, decls) in fileDecls) {
             for(decl in decls) {
                 if(decl.fullyQualifiedName.isPresent) {
                     codeDb.getOrCreateClassDefinition(decl.fullyQualifiedName.get(), decl)
                 }
             }
-            codeDb.connection.commit()
+        }
+        codeDb.connection.commit()
+
+        for ((_, decls) in fileDecls) {
             for(decl in decls) {
                 if(decl.fullyQualifiedName.isPresent) {
                     val resolvedTypeDeclaration = decl.symbolResolver.toTypeDeclaration(decl)
@@ -36,7 +46,8 @@ class ClassHierarchyBuilder(val javaParser: JavaParser, val files: List<Path>, v
                     }
                 }
             }
-            codeDb.connection.commit()
         }
+        codeDb.connection.commit()
+
     }
 }

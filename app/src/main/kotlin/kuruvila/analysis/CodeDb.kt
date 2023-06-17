@@ -3,6 +3,10 @@ package kuruvila.analysis
 import com.github.javaparser.ast.Modifier
 import com.github.javaparser.ast.Node
 import com.github.javaparser.ast.NodeList
+import com.github.javaparser.ast.body.AnnotationDeclaration
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration
+import com.github.javaparser.ast.body.EnumDeclaration
+import com.github.javaparser.ast.body.RecordDeclaration
 import com.github.javaparser.ast.expr.AssignExpr
 import com.github.javaparser.ast.expr.BinaryExpr
 import com.github.javaparser.ast.expr.UnaryExpr
@@ -44,7 +48,8 @@ class CodeDb(val connection: Connection) {
                     """create table source_file (id integer primary key autoincrement, absolute_path string)""",
 
                     //Class hierarchy
-                    """create table class_definition (id integer primary key autoincrement, ast_node_id integer, qualified_name string)""",
+                    """create table class_definition_type (id integer primary key autoincrement, name string)""",
+                    """create table class_definition (id integer primary key autoincrement, class_definition_type_id integer, ast_node_id integer, qualified_name string)""",
                     """create table class_definition_inheritance (class_definition_id integer, super_class_definition_id integer)"""
 
             )
@@ -159,9 +164,23 @@ class CodeDb(val connection: Connection) {
         }
     }
 
+    fun addClassTypes() {
+        val insertQuery = "insert into class_definition_type (name) values (?)"
+        for (classType in ClassType.values()) {
+            connection.prepareStatement(insertQuery).use { insertStatement ->
+                insertStatement.setString(1, classType.name)
+                val res = insertStatement.executeUpdate()
+                if(res != 1) {
+                    throw java.lang.RuntimeException("Failed to add class type ${classType}")
+                }
+            }
+        }
+    }
+
     fun initialize() {
         createTables()
         loadMetaModel()
+        addClassTypes()
     }
 
     fun getOrCreateSourceFile(file: Path): Int {
@@ -346,9 +365,22 @@ class CodeDb(val connection: Connection) {
         return findIdForNode(compilationUnitNodeId, path)
     }
 
+    fun getClassTypeId(classType: ClassType): Int {
+        val findQuery = "select id from class_definition_type where name = ?"
+        connection.prepareStatement(findQuery).use { preparedStatement ->
+            preparedStatement.setString(1, classType.name)
+            val rs = preparedStatement.executeQuery()
+            if(!rs.next()) {
+                throw RuntimeException("Failed to find class type ${classType}")
+            }
+            return rs.getInt(1)
+        }
+    }
+
     fun getOrCreateClassDefinition(qualifiedName: String, node: Node?): Int {
+
         val findQuery = """select id from class_definition where qualified_name = ?"""
-        val createRowQuery = """insert into class_definition (ast_node_id, qualified_name) values (?, ?)"""
+        val createRowQuery = """insert into class_definition (class_definition_type_id, ast_node_id, qualified_name) values (?, ?, ?)"""
         val classDefinitionId = connection.prepareStatement(findQuery).use { preparedStatement ->
             preparedStatement.setString(1, qualifiedName)
             val rs = preparedStatement.executeQuery()
@@ -356,10 +388,14 @@ class CodeDb(val connection: Connection) {
                 rs.getInt(1)
             } else {
                 connection.prepareStatement(createRowQuery).use { updateStatement ->
+
                     if(node != null) {
-                        updateStatement.setInt(1, findIdForNode(node))
+                        val classType = ClassType.fromNode(node)
+                        val classTypeId = getClassTypeId(classType)
+                        updateStatement.setInt(1, classTypeId)
+                        updateStatement.setInt(2, findIdForNode(node))
                     }
-                    updateStatement.setString(2, qualifiedName)
+                    updateStatement.setString(3, qualifiedName)
                     val res = updateStatement.executeUpdate()
                     if(res != 1) throw java.lang.RuntimeException("Failed to add class definition")
                     getLastInsertedRowId()
@@ -387,6 +423,37 @@ class CodeDb(val connection: Connection) {
             val res = updateStatement.executeUpdate()
             if(res != 1){
                 throw java.lang.RuntimeException("Failed to add class_definition_inheritence for (${classDefinitionId} -> ${ancestorClassDefinitionId})")
+            }
+        }
+    }
+}
+
+enum class ClassType(name: String) {
+    CLASS("class"),
+    INTERFACE("interface"),
+    RECORD("record"),
+    ENUM("enum"),
+    ANNOTATION("annotation");
+
+    companion object {
+        fun fromNode(node: Node): ClassType {
+            when(node) {
+                is ClassOrInterfaceDeclaration->
+                    return if(node.isInterface){
+                        INTERFACE
+                    } else {
+                        CLASS
+                    }
+                is RecordDeclaration -> {
+                    return RECORD
+                }
+                is EnumDeclaration -> {
+                    return ENUM
+                }
+                is AnnotationDeclaration -> {
+                    return ANNOTATION
+                }
+                else -> throw RuntimeException("Unsupported node type ${node.javaClass.name}")
             }
         }
     }
